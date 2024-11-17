@@ -26,4 +26,6 @@ def get_chronos_future_predicitons(data, months=36, model_name="amazon/chronos-t
         'upper': high
     })
 
+    del pipeline, forecast, low, median, high
+
     return df

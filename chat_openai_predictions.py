@@ -103,4 +103,7 @@ def get_openai_future_predicitons(data, data_type, region, product_name, months=
         'lower': response.lower_confidence_intervals,
         'upper': response.upper_confidence_intervals
     })
+
+    del llm, chain,  query
+
     return df, response.explanation

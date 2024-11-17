@@ -20,6 +20,8 @@ from chronos_predictions import get_chronos_future_predicitons
 from chat_openai_predictions import get_openai_future_predicitons
 from pyspark.sql import SparkSession
 
+import gc
+
 
 # from dataplane import s3_download
 import os
@@ -44,7 +46,6 @@ parent_dir = str(parent_dir).replace("\\", "/") + "/"
 
 curdoc().theme = 'dark_minimal'
 
-spark = SparkSession.builder.appName("ukrainian_prices").getOrCreate()
 
 DATA_LOADERS = {
     "Середні ціни споживчих товарів": "average_consuming_goods_prices",
@@ -57,15 +58,6 @@ Bucket = os.environ["secret_dp_BUCKET_NAME"]
 ClientAccessKey = os.environ["secret_dp_S3_ACCESS_KEY"]
 ClientSecret = os.environ["secret_dp_S3_SECRET"]
 ConnectionUrl = f"https://{AccountID}.r2.cloudflarestorage.com"
-
-
-S3Connect = boto3.client(
-    's3',
-    endpoint_url=ConnectionUrl,
-    aws_access_key_id=ClientAccessKey,
-    aws_secret_access_key=ClientSecret,
-    config=Config(signature_version='s3v4'),
-)
 
 
 def downloadDirectoryFroms3(bucketName, remoteDirectoryName):
@@ -89,12 +81,23 @@ file_locations = [
 
 if not os.path.exists('average_salary.csv'):
     print("Downloading files from S3...")
+    S3Connect = boto3.client(
+        's3',
+        endpoint_url=ConnectionUrl,
+        aws_access_key_id=ClientAccessKey,
+        aws_secret_access_key=ClientSecret,
+        config=Config(signature_version='s3v4'),
+    )
+
     for file_path in file_locations:
         local_file_path = os.path.join(
             'temp_data', os.path.basename(file_path))
         downloadDirectoryFroms3(Bucket, file_path,)
 else:
     print("Files already downloaded.")
+
+spark: SparkSession = SparkSession.builder.appName(
+    "ukrainian_prices").getOrCreate()
 
 
 def load_data(data_type):
@@ -107,23 +110,30 @@ def load_data(data_type):
     filtered_df = df.filter(~(df[UKRAINE_PRICE_COLUMNS.BASE_PERIOD].isin(
         "Рік до попереднього року", "Грудень до грудня попереднього року")))
 
+    del df
+    gc.collect()
     return filtered_df
 
 
 def load_usd_currency_data():
     csv_file_path = f"usd_uah_currency_with_basis.csv"
-    return (spark.read.format("csv")
-            .option("header", "true")
-            .schema(STOCK_PRICE_SCHEMA)
-            .load(csv_file_path))
+    df = (spark.read.format("csv")
+          .option("header", "true")
+          .schema(STOCK_PRICE_SCHEMA)
+          .load(csv_file_path))
+    gc.collect()
+    return df
 
 
 def load_average_salary_data():
     csv_file_path = f"average_salary.csv"
-    return (spark.read.format("csv")
-            .option("header", "true")
-            .schema(AVERAGE_SALARY_SCHEMA)
-            .load(csv_file_path))
+    df = (spark.read.format("csv")
+          .option("header", "true")
+          .schema(AVERAGE_SALARY_SCHEMA)
+          .load(csv_file_path))
+
+    gc.collect()
+    return df
 
 
 def filter_data(df, column, value):
@@ -241,6 +251,8 @@ def st_show_relative_prices():
 
                     visualize_predictions(
                         data, usd_currency_data, average_salary_data, 'Comparison', show_normilized_value=data_type != "Середні ціни споживчих товарів")
+                    del data, usd_currency_data, average_salary_data
+                    gc.collect()
 
 
 def st_show_buckets_prices():
@@ -342,6 +354,9 @@ def st_show_buckets_prices():
 
             visualize_predictions(
                 combined, basket_costs_df, 'Comparison')
+            del basket_costs_df, combined, average_salary_data, basket_costs
+            gc.collect()
+
     else:
         st.warning("Будь ласка, додайте товари до кошика.")
 
@@ -446,6 +461,8 @@ def st_show_goods_prices_predictions():
                         # Step 6: Visualize
                         visualize_predictions(
                             data, train_predictions, test_predictions)
+                        del test_predictions, data, train_predictions
+                        gc.collect()
                     if model_type == "OPENAI":
                         result_df, explanation = get_openai_future_predicitons(
                             data, data_type, region, product_name, 36)
@@ -460,6 +477,9 @@ def st_show_goods_prices_predictions():
                                 data, train_predictions, test_predictions)
                             st.write(explanation)
 
+                        del data, train_predictions, test_predictions, explanation, result_df
+                        gc.collect()
+
 
 page_names_to_funcs = {
     "Relative Prices": st_show_relative_prices,
@@ -469,4 +489,5 @@ page_names_to_funcs = {
 
 st.set_page_config(layout="wide")  # Streamlit UI
 demo_name = st.sidebar.selectbox("Choose a demo", page_names_to_funcs.keys())
+gc.collect()
 page_names_to_funcs[demo_name]()
