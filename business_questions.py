@@ -20,7 +20,15 @@ from chronos_predictions import get_chronos_future_predicitons
 from chat_openai_predictions import get_openai_future_predicitons
 from pyspark.sql import SparkSession
 
+
+# from dataplane import s3_download
+import os
+import boto3
+from botocore.client import Config
+import json
+
 from pathlib import Path
+from st_files_connection import FilesConnection
 
 parent_dir = Path().resolve().parent
 
@@ -44,9 +52,53 @@ DATA_LOADERS = {
     "Індекси споживчих цін": "index_consuming_prices"
 }
 
+AccountID = os.environ["secret_dp_S3_ACCOUNT_ID"]
+Bucket = os.environ["secret_dp_BUCKET_NAME"]
+ClientAccessKey = os.environ["secret_dp_S3_ACCESS_KEY"]
+ClientSecret = os.environ["secret_dp_S3_SECRET"]
+ConnectionUrl = f"https://{AccountID}.r2.cloudflarestorage.com"
+
+
+S3Connect = boto3.client(
+    's3',
+    endpoint_url=ConnectionUrl,
+    aws_access_key_id=ClientAccessKey,
+    aws_secret_access_key=ClientSecret,
+    config=Config(signature_version='s3v4'),
+)
+
+
+def downloadDirectoryFroms3(bucketName, remoteDirectoryName):
+    s3r = boto3.resource('s3', aws_access_key_id=ClientAccessKey,
+                         aws_secret_access_key=ClientSecret, endpoint_url=ConnectionUrl)
+    bucket = s3r.Bucket(bucketName)
+    for obj in bucket.objects.filter(Prefix=remoteDirectoryName):
+        if not os.path.exists(os.path.dirname(obj.key)):
+            os.makedirs(os.path.dirname(obj.key))
+        bucket.download_file(obj.key, obj.key)
+
+
+# File Locations
+file_locations = [
+    "usd_uah_currency_with_basis.csv",
+    "splited_data/average_consuming_goods_prices.csv",
+    "splited_data/base_index_consuming_prices.csv",
+    "splited_data/index_consuming_prices.csv",
+    "average_salary.csv"
+]
+
+if not os.path.exists('average_salary.csv'):
+    print("Downloading files from S3...")
+    for file_path in file_locations:
+        local_file_path = os.path.join(
+            'temp_data', os.path.basename(file_path))
+        downloadDirectoryFroms3(Bucket, file_path,)
+else:
+    print("Files already downloaded.")
+
 
 def load_data(data_type):
-    csv_file_path = f"data/processed/splited_data/{data_type}.csv"
+    csv_file_path = f"splited_data/{data_type}.csv"
     df = (spark.read.format("csv")
           .option("header", "true")
           .schema(UKRAINE_PRICE_SCHEMA)
@@ -59,7 +111,7 @@ def load_data(data_type):
 
 
 def load_usd_currency_data():
-    csv_file_path = f"data/processed/usd_uah_currency_with_basis.csv"
+    csv_file_path = f"usd_uah_currency_with_basis.csv"
     return (spark.read.format("csv")
             .option("header", "true")
             .schema(STOCK_PRICE_SCHEMA)
@@ -67,7 +119,7 @@ def load_usd_currency_data():
 
 
 def load_average_salary_data():
-    csv_file_path = f"data/processed/average_salary.csv"
+    csv_file_path = f"average_salary.csv"
     return (spark.read.format("csv")
             .option("header", "true")
             .schema(AVERAGE_SALARY_SCHEMA)
