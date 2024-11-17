@@ -5,4 +5,4 @@ from .ukraine_price_dataset import (
     UKRAINE_PRICE_SCHEMA,
 )
 
-from .usd_currency_dataset import STOCK_PRICE_SCHEMA, STOCK_PRICE_COLUMNS
+from .usd_currency_dataset import STOCK_PRICE_INITIAL_SCHEMA, STOCK_PRICE_INITIAL_COLUMNS
